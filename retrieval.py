@@ -6,7 +6,7 @@ Retrieval pipeline for matching employees to a project's stacks.
 Full flow per stack seat:
     1.  ProjectStack { stack, description }
                 ↓
-    2.  Ollama / llama3  →  ideal candidate profile string
+    2.  Groq / llama3  →  ideal candidate profile string
                 ↓
     3.  all-MiniLM-L6-v2  →  384-dim query vector
                 ↓
@@ -14,7 +14,7 @@ Full flow per stack seat:
                 ↓
     5.  Pick best available employee
                 ↓
-    6.  Ollama / llama3  →  VibeSDK system prompt
+    6.  Groq / llama3  →  VibeSDK system prompt
                 ↓
         AssignedEmployee
 """
@@ -22,14 +22,18 @@ Full flow per stack seat:
 import json
 import requests
 from pinecone import Pinecone
+from groq import Groq
 
-from config import PINECONE_API_KEY, PINECONE_INDEX_NAME, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_BASE
+from config import PINECONE_API_KEY, PINECONE_INDEX_NAME, GROQ_API_KEY, GROQ_MODEL
 from embeddings import EmployeeEmbedder
 from models import Project, ProjectStack, AssignedEmployee, ProjectRoster, SkillGap
 from memory import save_roster
 
 
 TOP_K = 5
+
+# Groq client (reused across all calls)
+_groq_client = Groq(api_key=GROQ_API_KEY)
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -97,93 +101,25 @@ Role description: {description}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Ollama helper
+# Groq helper
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _list_ollama_models() -> list[str]:
+def _call_groq(prompt: str, temperature: float = 0.2, max_tokens: int = 150) -> str:
     """
-    Calls Ollama /api/tags to get all locally available model names.
-    Returns empty list if Ollama is unreachable.
-    """
-    try:
-        r = requests.get(f"{OLLAMA_BASE}/api/tags", timeout=5)
-        r.raise_for_status()
-        return [m["name"] for m in r.json().get("models", [])]
-    except Exception:
-        return []
-
-
-def _validate_ollama_model():
-    """
-    Check that OLLAMA_MODEL is pulled and available.
-    Prints a clear actionable message if not.
-    """
-    available = _list_ollama_models()
-    if not available:
-        raise RuntimeError(
-            "Cannot reach Ollama at localhost:11434\n"
-            "  Fix: run `ollama serve` in a separate terminal"
-        )
-
-    # Ollama model names can be "llama3" or "llama3:latest" — normalise
-    normalised = [m.split(":")[0] for m in available]
-    if OLLAMA_MODEL.split(":")[0] not in normalised:
-        raise RuntimeError(
-            f"Model '{OLLAMA_MODEL}' is not pulled.\n"
-            f"  Available models : {available}\n"
-            f"  Fix              : run `ollama pull {OLLAMA_MODEL}`"
-        )
-    print(f"[Ollama] ✅ Model '{OLLAMA_MODEL}' is available")
-
-
-def _call_ollama(prompt: str, temperature: float = 0.2, num_predict: int = 150) -> str:
-    """
-    Shared Ollama call.
-    On HTTP errors, surfaces the actual Ollama error body so you can
-    diagnose the problem immediately instead of seeing a generic 500.
+    Shared Groq LLM call using the official SDK.
+    Uses the chat completions API (OpenAI-compatible).
     """
     try:
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":   OLLAMA_MODEL,
-                "prompt":  prompt,
-                "stream":  False,
-                "options": {"temperature": temperature, "num_predict": num_predict},
-            },
-            timeout=90,
+        response = _groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
+        return response.choices[0].message.content.strip()
 
-        # Surface Ollama's actual error body before raising
-        if not response.ok:
-            try:
-                err_body = response.json()
-                err_msg  = err_body.get("error", response.text)
-            except Exception:
-                err_msg  = response.text
-            raise RuntimeError(
-                f"Ollama returned HTTP {response.status_code}:\n"
-                f"  {err_msg}\n"
-                f"  Model : {OLLAMA_MODEL}\n"
-                f"  Fix   : run `ollama pull {OLLAMA_MODEL}` if model is missing"
-            )
-
-        return response.json()["response"].strip()
-
-    except requests.exceptions.ConnectionError:
-        raise RuntimeError(
-            "Cannot reach Ollama at localhost:11434\n"
-            "  Fix: run `ollama serve` in a separate terminal"
-        )
-    except requests.exceptions.Timeout:
-        raise RuntimeError(
-            f"Ollama timed out after 90s\n"
-            f"  The model may still be loading — try again in a moment"
-        )
-    except RuntimeError:
-        raise   # re-raise our own errors unchanged
     except Exception as e:
-        raise RuntimeError(f"Unexpected Ollama error: {e}")
+        raise RuntimeError(f"Groq API error: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,12 +127,12 @@ def _call_ollama(prompt: str, temperature: float = 0.2, num_predict: int = 150) 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_stack_profile(stack: ProjectStack) -> str:
-    """Calls Ollama to generate an ideal candidate description for this stack."""
+    """Calls Groq to generate an ideal candidate description for this stack."""
     prompt = STACK_PROFILE_PROMPT.format(
         stack=stack.stack,
         description=stack.description,
     )
-    return _call_ollama(prompt, temperature=0.2, num_predict=150)
+    return _call_groq(prompt, temperature=0.2, max_tokens=150)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +197,7 @@ def generate_vibesdk_system_prompt(
     skill_gap: "SkillGap",
 ) -> str:
     """
-    Calls Ollama to generate a personalised VibeSDK system prompt.
+    Calls Groq to generate a personalised VibeSDK system prompt.
     Includes skill gap context so the LLM knows exactly where to guide
     this developer during pair-programming sessions.
     """
@@ -306,7 +242,7 @@ def generate_vibesdk_system_prompt(
     if gap_section:
         prompt += f"\n\nSkill gap context to include:\n{gap_section}"
 
-    return _call_ollama(prompt, temperature=0.3, num_predict=500)
+    return _call_groq(prompt, temperature=0.3, max_tokens=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -315,7 +251,7 @@ def generate_vibesdk_system_prompt(
 
 def generate_skill_gap(best: dict, stack: ProjectStack) -> SkillGap:
     """
-    Calls Ollama to analyse the gap between the employee's current skills
+    Calls Groq to analyse the gap between the employee's current skills
     and what the assigned ProjectStack actually requires.
 
     Parses the LLM's structured response into a SkillGap dataclass.
@@ -342,7 +278,7 @@ def generate_skill_gap(best: dict, stack: ProjectStack) -> SkillGap:
         description  = stack.description,
     )
 
-    raw = _call_ollama(prompt, temperature=0.1, num_predict=200)
+    raw = _call_groq(prompt, temperature=0.1, max_tokens=200)
 
     # ── Parse structured response ─────────────────────────────────────────────
     def _parse_list(line: str) -> list[str]:
@@ -402,13 +338,11 @@ class RetrievalPipeline:
     """
 
     def __init__(self):
-        # Validate Ollama is running and the model is pulled before doing anything
-        _validate_ollama_model()
-
         self.embedder = EmployeeEmbedder()
         pc = Pinecone(api_key=PINECONE_API_KEY)
         self.index = pc.Index(PINECONE_INDEX_NAME)
         print(f"[Pipeline] Connected to Pinecone index '{PINECONE_INDEX_NAME}'")
+        print(f"[Pipeline] Using Groq model '{GROQ_MODEL}'")
 
     def run_stack(
         self,

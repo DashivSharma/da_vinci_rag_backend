@@ -6,7 +6,7 @@ Every other module imports from here — never from os.environ directly.
 
 Usage
 -----
-from config import PINECONE_API_KEY, PINECONE_INDEX_NAME, OLLAMA_URL, OLLAMA_MODEL
+from config import PINECONE_API_KEY, PINECONE_INDEX_NAME, GROQ_API_KEY, GROQ_MODEL
 """
 
 import os
@@ -31,7 +31,6 @@ def _require(key: str) -> str:
 PINECONE_API_KEY   = _require("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "talent-rag")
 
-# ── Ollama ────────────────────────────────────────────────────────────────────
-OLLAMA_BASE  = os.getenv("OLLAMA_BASE",  "http://localhost:11434")
-OLLAMA_URL   = f"{OLLAMA_BASE}/api/generate"   # full generate endpoint
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+# ── Groq ──────────────────────────────────────────────────────────────────────
+GROQ_API_KEY = _require("GROQ_API_KEY")
+GROQ_MODEL   = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")

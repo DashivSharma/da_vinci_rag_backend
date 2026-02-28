@@ -11,8 +11,11 @@ pinecone-client==3.2.2
 # Numeric
 numpy==1.26.4
 
-# HTTP client for Ollama local API
+# HTTP client (used by various modules)
 requests==2.31.0
+
+# Groq cloud LLM API
+groq>=0.12.0
 
 # CLI formatting
 rich==13.7.1

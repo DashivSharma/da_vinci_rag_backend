@@ -1,0 +1,40 @@
+# render.yaml
+# ───────────
+# Render deployment config — commit this to your repo root.
+# Render auto-detects it and wires everything up.
+
+services:
+  - type: web
+    name: talent-rag-api
+    runtime: python
+    region: oregon
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+
+    # Render injects $PORT — uvicorn must bind 0.0.0.0:$PORT
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT --log-level warning
+
+    # Render pings this to confirm the service is alive after deploy
+    healthCheckPath: /health
+
+    envVars:
+      # ── Secrets — set values in Render dashboard, never here ──
+      - key: PINECONE_API_KEY
+        sync: false
+
+      - key: GROQ_API_KEY
+        sync: false          # set in Render dashboard
+
+      # ── Non-secret config — safe to hardcode ──────────────────
+      - key: PINECONE_INDEX_NAME
+        value: talent-rag
+
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+      - key: TOKENIZERS_PARALLELISM
+        value: "false"       # suppress HuggingFace warning in logs

@@ -195,7 +195,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title       = "Talent RAG API",
     description = (
-        "Semantic employee-project matching powered by Pinecone + llama3. "
+        "Semantic employee-project matching powered by Pinecone + Groq LLM. "
         "Assigns employees to project stacks, calculates skill gaps, and "
         "generates personalised VibeSDK system prompts."
     ),
@@ -462,7 +462,7 @@ async def run_project(body: RunProjectRequest):
     try:
         roster = pipeline.run_project(project)   # auto-saves to SQLite
     except RuntimeError as exc:
-        # Ollama / Pinecone errors — client-actionable
+        # Groq / Pinecone errors — client-actionable
         logger.error("Pipeline error for '%s': %s", body.name, exc)
         raise HTTPException(
             status_code = status.HTTP_502_BAD_GATEWAY,
@@ -479,4 +479,18 @@ async def run_project(body: RunProjectRequest):
 
     return _roster_to_out(roster)
 
-    
+
+# ── Entry point (used by render startCommand and local dev) ───────────────────
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))
+    logger.info("Starting server on 0.0.0.0:%d", port)
+
+    uvicorn.run(
+        "api:app",
+        host     = "0.0.0.0",   # must be 0.0.0.0 on Render — not localhost
+        port     = port,
+        reload   = False,        # never reload in production
+        log_level = "warning",   # uvicorn's own logs — our logger handles the rest
+    )

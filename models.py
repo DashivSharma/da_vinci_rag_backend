@@ -104,7 +104,7 @@ class Project:
 class SkillGap:
     """
     Skill gap analysis for an AssignedEmployee vs their ProjectStack.
-    Calculated at assignment time via Ollama.
+    Calculated at assignment time via Groq.
 
     Attributes
     ----------

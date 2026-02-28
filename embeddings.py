@@ -4,7 +4,7 @@ embeddings.py
 Flow per employee:
     1. skills (dict) + proj_details (str)
           ↓
-    2. Ollama / llama3  →  concise, semantically rich summary string
+    2. Groq / llama3  →  concise, semantically rich summary string
           ↓
     3. all-MiniLM-L6-v2  →  384-dim normalised float vector
 
@@ -15,13 +15,13 @@ Why LLM first?
 """
 
 import json
-import requests
+from groq import Groq
 from sentence_transformers import SentenceTransformer
 
+from config import GROQ_API_KEY, GROQ_MODEL
 
-# ── Ollama config ─────────────────────────────────────────────────────────────
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "llama3"
+# ── Groq client ──────────────────────────────────────────────────────────────
+_groq_client = Groq(api_key=GROQ_API_KEY)
 
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ Project history:
 class EmployeeEmbedder:
     """
     Generates embeddings for employees using a two-stage pipeline:
-        Ollama (llama3) → summary text → all-MiniLM-L6-v2 → vector
+        Groq (llama3) → summary text → all-MiniLM-L6-v2 → vector
 
     Usage
     -----
@@ -83,7 +83,7 @@ class EmployeeEmbedder:
 
     @staticmethod
     def _build_prompt(employee: dict) -> str:
-        """Format the Ollama prompt from employee skills + proj_details."""
+        """Format the Groq prompt from employee skills + proj_details."""
         skills = employee.get("skills", {})
         if isinstance(skills, str):
             skills = json.loads(skills)
@@ -102,39 +102,24 @@ class EmployeeEmbedder:
     @staticmethod
     def generate_summary(employee: dict) -> str:
         """
-        Calls Ollama locally to generate a rich summary string for the employee.
+        Calls Groq to generate a rich summary string for the employee.
         Returns the summary as a plain string.
-        Raises RuntimeError if Ollama is unreachable.
+        Raises RuntimeError if the Groq API call fails.
         """
         prompt = EmployeeEmbedder._build_prompt(employee)
 
         try:
-            response = requests.post(
-                OLLAMA_URL,
-                json={
-                    "model":  OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,        # wait for full response
-                    "options": {
-                        "temperature": 0.2, # low temp = consistent, factual
-                        "num_predict": 200, # ~4-6 sentences is enough
-                    },
-                },
-                timeout=60,
+            response = _groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=200,
             )
-            response.raise_for_status()
-            summary = response.json()["response"].strip()
+            summary = response.choices[0].message.content.strip()
             return summary
 
-        except requests.exceptions.ConnectionError:
-            raise RuntimeError(
-                "Cannot reach Ollama at localhost:11434. "
-                "Make sure Ollama is running: `ollama serve`"
-            )
-        except requests.exceptions.Timeout:
-            raise RuntimeError("Ollama request timed out after 60s.")
-        except KeyError:
-            raise RuntimeError(f"Unexpected Ollama response: {response.text}")
+        except Exception as e:
+            raise RuntimeError(f"Groq API error: {e}")
 
     # ── Stage 2: Embed text ──────────────────────────────────────────────────
 
