@@ -1,0 +1,29 @@
+# Talent RAG — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Embeddings model (all-MiniLM-L6-v2)
+sentence-transformers==3.0.1
+
+# Vector store
+pinecone-client==3.2.2
+
+
+# Numeric
+numpy==1.26.4
+
+# HTTP client for Ollama local API
+requests==2.31.0
+
+# CLI formatting
+rich==13.7.1
+
+# Fake data generation for seeding
+faker==25.2.0
+
+# Environment variable management
+python-dotenv==1.0.1
+
+# API
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
